@@ -1,0 +1,279 @@
+#!/bin/bash
+# ------------------------------------------------------------------------
+# /usr/local/bin/sm - Simple Screen Manager - 0.5 (2010-03-22)
+# Copyright (C) 2010 Andreas Klauer <Andreas.Klauer@metamorpher.de>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+# ------------------------------------------------------------------------
+# Example Usage:
+#
+#     create ~/bin/sm.available/ and ~/bin/sm.enabled/
+#     put a script you want to run in screen in ~/bin/sm.available/
+#     sm list
+#     sm enable script
+#     sm start script
+#     sm {start|stop|restart|status|attach|list|enable|disable} [script]
+#     (use with cron to (re)start it automatically at boot)
+# ------------------------------------------------------------------------
+# Example Script: (prepare something and start it with exec)
+#
+#     #!/bin/bash
+#
+#     cd ~/srcds/orangebox
+#
+#     exec ./srcds_run -autoupdate \
+#                      -game tf \
+#                      +ip 1.2.3.4 +port 27015 \
+#                      +maxplayers 24 \
+#                      +servercfgfile server_default.cfg \
+#                      +exec server_default.cfg \
+#                      +map cp_badlands
+# ------------------------------------------------------------------------
+# Example Cron Job: (restarts enabled scripts at boot and every 5 minutes)
+#
+# # m h  dom mon dow   command
+# @reboot /usr/local/bin/sm start
+# */5 * * * * /usr/local/bin/sm start
+# ------------------------------------------------------------------------
+
+PREFIX='sm_'
+DIR=~/bin
+ENABLED=sm.enabled
+AVAILABLE=sm.available
+EDIR="$DIR"/"$ENABLED"
+ADIR="$DIR"/"$AVAILABLE"
+ME="`basename "$0"`"
+
+#
+# Check if daemon/service is running
+# return values:
+#
+# 0 - screen is not running
+# 1 - screen is running
+# 2 - screen is not available
+# 3 - screen is not executable
+#
+sm_pidof()
+{
+    NAME="$PREFIX""$1"
+
+    # get the pid of the screen session if it exists
+    PID=$[`screen -ls | grep -E '[0-9]+\.'"$NAME"'\>' | cut -d . -f 1`+0]
+
+    if [ $PID -gt 0 ]
+    then
+        return
+    fi
+
+    if [ ! -f "$EDIR"/"$1" ]
+    then
+        echo ERROR: Screen "'$1'" does not exist...
+    fi
+
+    if [ ! -x "$EDIR"/"$1" ]
+    then
+        echo ERROR: Screen "'$1'" is not executable...
+    fi
+}
+
+#
+# Start the screen
+#
+sm_start()
+{
+    sm_pidof "$1"
+
+    if [ $PID -eq 0 ]
+    then
+        echo -n "Starting screen '$1'... "
+        screen -d -m -S "$PREFIX""$1" "$EDIR"/"$1" && echo OK || echo FAIL
+    fi
+}
+
+#
+# Stop the screen
+#
+sm_stop()
+{
+    sm_pidof "$1"
+
+    if [ $PID -gt 0 ]
+    then
+        echo -n "Stopping screen '$1'... "
+        screen -d -r "$PID"."$PREFIX""$1" -X quit && echo OK || echo FAIL
+    fi
+}
+
+#
+# Print the status of a screen
+#
+sm_status()
+{
+     echo -n "Screen '$1' is ... "
+
+     sm_pidof "$1"
+
+     if [ $PID -gt 0 ]
+     then
+         echo RUNNING
+     else
+         echo NOT RUNNING
+     fi
+}
+
+#
+# Attach a specific screen
+#
+sm_attach()
+{
+    sm_pidof "$1"
+
+    if [ $PID -gt 0 ]
+    then
+        screen -x "$PID"."$PREFIX""$1"
+    fi
+}
+
+#
+# List available screens
+#
+sm_list()
+{
+    MASK="*"
+
+    if [ "$1" != "" ]
+    then
+        MASK="$1"
+    fi
+
+    if [ ! -d "$ADIR" ]
+    then
+        echo "'$ADIR' is not a directory, can't list..."
+        exit 1
+    fi
+
+    cd "$ADIR"
+
+    echo "List of available screens: (* if enabled)"
+    echo "-----------------------------------------"
+
+    for f in $MASK
+    do
+        if [ -x "$ADIR"/"$f" ]
+        then
+            if [ -x "$EDIR"/"$f" ]
+            then
+                echo "*" "$f"
+            else
+                echo " " "$f"
+            fi
+        fi
+    done
+
+    echo "Use '$ME enable name' or '$ME disable name' to enable/disable screens."
+}
+
+#
+# Enable a screen
+#
+sm_enable()
+{
+    if [ -x "$ADIR"/"$1" ]
+    then
+        rm "$EDIR"/"$1" >& /dev/null
+        ln -s ../"$AVAILABLE"/"$1" "$EDIR"/"$1"
+        echo Enabled screen "'$1'"
+    fi
+}
+
+#
+# Disable a screen
+#
+sm_disable()
+{
+    if [ -e "$EDIR"/"$1" ]
+    then
+        sm_stop "$1"
+        rm "$EDIR"/"$1"
+        echo Disabled screen "'$1'"
+    fi
+}
+
+#
+# Function that decides what to do
+#
+sm_case()
+{
+    case "$1" in
+        start)
+            sm_start "$2"
+            ;;
+        stop)
+            sm_stop "$2"
+            ;;
+        restart)
+            sm_stop "$2"
+            sm_start "$2"
+            ;;
+        status)
+            sm_status "$2"
+            ;;
+        attach)
+            sm_attach "$2"
+            ;;
+        list)
+            sm_list "$2"
+            ;;
+        enable)
+            sm_enable "$2"
+            ;;
+        disable)
+            sm_disable "$2"
+            ;;
+        *)
+            echo "Usage: $ME {start|stop|restart|status|attach|list|enable|disable} [name]" >&2
+	    exit 3
+            ;;
+    esac
+}
+
+#
+# main program
+#
+
+if [ "$2" != "" -o "$1" == "list" ]
+then
+    # handle specific screen "$2"
+    sm_case "$1" "$2"
+else
+    # handle all enabled screens
+    for f in "$EDIR"/*
+    do
+        f="`basename "$f"`"
+
+        if [ "$f" == "*" ]
+        then
+            # no screens enabled
+            sm_case
+            exit 0
+        fi
+
+        sm_case "$1" "$f"
+    done
+fi
