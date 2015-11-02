@@ -1,1 +1,33 @@
 Screen Manager is a simple wrapper around GNU screen that lets users run interactive applications as services in a screen.
+
+Screen Manager is a simple init-script like wrapper around GNU screen. In combination with cron, it lets users start interactive applications like init.d services.
+
+Example Usage:
+
+create ~/bin/sm.available/ and ~/bin/sm.enabled/
+put a script you want to run in screen in ~/bin/sm.available/
+sm list
+sm enable script
+sm start script
+sm {start|stop|restart|status|attach|list|enable|disable} [script]
+(use with cron to (re)start it automatically at boot)
+
+Screen Manager is a simple init-script like wrapper around GNU screen that lets users list, enable, disable, start, stop, attach applications. In combination with cron this can be used to start interactive applications like services in a screen on boot, and auto restart them if they crash.
+
+Example Script: (prepare something and start it with exec)
+
+pre. #!/bin/bash
+cd ~/srcds/orangebox
+exec ./srcds_run -autoupdate \
+                  -game tf \
+                  +ip 1.2.3.4 +port 27015 \
+                  +maxplayers 24 \
+                  +servercfgfile server_default.cfg \
+                  +exec server_default.cfg \
+                  +map cp_badlands
+
+Example Cron Job: (restarts enabled scripts at boot and every 5 minutes)
+
+pre. # m h  dom mon dow   command
+@reboot /usr/local/bin/sm start
+*/5 * * * * /usr/local/bin/sm start
